@@ -1,0 +1,280 @@
+package main
+
+import (
+    log "code.google.com/p/log4go"
+    "net"
+    "time"
+    "bufio"
+    "fmt"
+    "io"
+    "github.com/ibluesand/gocomet/server/config"
+    "runtime"
+    "os"
+    "os/signal"
+    "syscall"
+)
+
+const (
+    fitstPacketTimedoutSec = time.Second * 5
+)
+
+var (
+    Conf     *config.Config
+)
+
+func main() {
+    // init config
+    Conf = config.InitConfig()
+
+    fmt.Println(Conf.Log)
+
+    // set max routine
+    runtime.GOMAXPROCS(Conf.MaxProc)
+    // init log
+    log.LoadConfiguration(Conf.Log)
+    defer log.Close()
+
+
+    for _, bind := range Conf.TCPBind {
+        fmt.Println("start tcp listen addr:\"%s\"", bind)
+        log.Info("start tcp listen addr:\"%s\"", bind)
+        go tcpListen(bind)
+    }
+
+//    time.Sleep(time.Second* 1000)
+
+    // init signals, block wait signals
+    signalCH := InitSignal()
+    HandleSignal(signalCH)
+    // exit
+    log.Info("comet stop")
+}
+
+func tcpListen(bind string) {
+    fmt.Println("===")
+    addr, err := net.ResolveTCPAddr("tcp", bind)
+    if err != nil {
+        log.Error("net.ResolveTCPAddr(\"tcp\"), %s) error(%v)", bind, err)
+        panic(err)
+    }
+    fmt.Println("ResolveTCPAddr", addr)
+    l, err := net.ListenTCP("tcp", addr)
+    if err != nil {
+        log.Error("net.ListenTCP(\"tcp4\", \"%s\") error(%v)", bind, err)
+        panic(err)
+    }
+    // free the listener resource
+    defer func() {
+        log.Info("tcp addr: \"%s\" close", bind)
+        if err := l.Close(); err != nil {
+            log.Error("listener.Close() error(%v)", err)
+        }
+    }()
+    // init reader buffer instance
+    //rb := newtcpBufCache()
+    messages := make(chan string,10)
+
+    for {
+        log.Debug("start accept")
+        conn, err := l.AcceptTCP()
+        if err != nil {
+            log.Error("listener.AcceptTCP() error(%v)", err)
+            continue
+        }
+        if err = conn.SetKeepAlive(Conf.TCPKeepalive); err != nil {
+            log.Error("conn.SetKeepAlive() error(%v)", err)
+            conn.Close()
+            continue
+        }
+        if err = conn.SetReadBuffer(Conf.RcvbufSize); err != nil {
+            log.Error("conn.SetReadBuffer(%d) error(%v)", Conf.RcvbufSize, err)
+            conn.Close()
+            continue
+        }
+        if err = conn.SetWriteBuffer(Conf.SndbufSize); err != nil {
+            log.Error("conn.SetWriteBuffer(%d) error(%v)", Conf.SndbufSize, err)
+            conn.Close()
+            continue
+        }
+        // first packet must sent by client in specified seconds
+//        if err = conn.SetReadDeadline(time.Now().Add(fitstPacketTimedoutSec)); err != nil {
+//            log.Error("conn.SetReadDeadLine() error(%v)", err)
+//            conn.Close()
+//            continue
+//        }
+        //rc := rb.Get()
+        // one connection one routine
+        go handleTCPConn(conn, messages)
+
+        log.Debug("accept finished")
+    }
+}
+
+func handleTCPConn(conn net.Conn, messages chan string) {
+    buf := make([]byte, 1024)
+    for {
+        lenght, err := conn.Read(buf)
+        if (checkError(err, "Connection")==false) {
+            conn.Close()
+            break
+        }
+        if lenght > 0 {
+            buf[lenght]=0
+        }
+        fmt.Println("Rec[",conn.RemoteAddr().String(),"] Say :" ,string(buf[0:lenght]))
+        reciveStr := string(buf[0:lenght])
+        messages <- reciveStr
+    }
+}
+
+func checkError(err error,info string) (res bool) {
+
+    if(err != nil){
+        fmt.Println(info+"  " + err.Error())
+        return false
+    }
+    return true
+}
+
+
+// hanleTCPConn handle a long live tcp connection.
+//func handleTCPConn(conn net.Conn, rc chan *bufio.Reader) {
+//
+//    buf := make([]byte, 512)
+//    conn.Read(buf)
+//    log.Debug(string(buf))
+//    conn.Write(buf)
+//
+//    addr := conn.RemoteAddr().String()
+//    log.Debug("<%s> handleTcpConn routine start", addr)
+//    rd := newBufioReader(rc, conn)
+//
+//    data, err := rd.ReadString('\n');
+//    log.Debug(data)
+//    if err != nil {
+//        panic(err)
+//    } else {
+//        fmt.Println(data);
+//    }
+//
+//
+//
+//    for {
+//        reply := []byte{0}
+//        if _, err = conn.Read(reply); err != nil {
+//            if err != io.EOF {
+//                    log.Debug(string(reply))
+////                log.Warn("<%s> user_key:\"%s\" conn.Read() failed, read heartbeat timedout error(%v)", addr, key, err)
+//            } else {
+//                // client connection close
+////                log.Warn("<%s> user_key:\"%s\" client connection close error(%v)", addr, key, err)
+//            }
+//            break
+//        }
+//    }
+//
+//
+////    if args, err := parseCmd(rd); err == nil {
+////        // return buffer bufio.Reader
+////        putBufioReader(rc, rd)
+////        switch args[0] {
+////            case "sub":
+////            SubscribeTCPHandle(conn, args[1:])
+////            break
+////            default:
+////            conn.Write(ParamReply)
+////            log.Warn("<%s> unknown cmd \"%s\"", addr, args[0])
+////            break
+////        }
+////    } else {
+////        // return buffer bufio.Reader
+////        putBufioReader(rc, rd)
+////        log.Error("<%s> parseCmd() error(%v)", addr, err)
+////    }
+//
+//
+//    // close the connection
+//    if err := conn.Close(); err != nil {
+//        log.Error("<%s> conn.Close() error(%v)", addr, err)
+//    }
+//    log.Debug("<%s> handleTcpConn routine stop", addr)
+//    return
+//}
+
+
+// newBufioReader get a Reader by chan, if chan empty new a Reader.
+func newBufioReader(c chan *bufio.Reader, r io.Reader) *bufio.Reader {
+    log.Debug("newBufioReader")
+    select {
+    case p := <-c:
+        p.Reset(r)
+        return p
+    default:
+        log.Warn("tcp bufioReader cache empty")
+        return bufio.NewReaderSize(r, Conf.RcvbufSize)
+    }
+}
+
+// putBufioReader pub back a Reader to chan, if chan full discard it.
+func putBufioReader(c chan *bufio.Reader, r *bufio.Reader) {
+    r.Reset(nil)
+    select {
+    case c <- r:
+    default:
+        log.Warn("tcp bufioReader cache full")
+    }
+}
+
+// tcpBuf cache.
+type tcpBufCache struct {
+    instance []chan *bufio.Reader
+    round    int
+}
+
+
+// newTCPBufCache return a new tcpBuf cache.
+func newtcpBufCache() *tcpBufCache {
+    inst := make([]chan *bufio.Reader, 0, Conf.BufioInstance)
+    log.Debug("create %d read buffer instance", Conf.BufioInstance)
+    for i := 0; i < Conf.BufioInstance; i++ {
+        inst = append(inst, make(chan *bufio.Reader, Conf.BufioNum))
+    }
+    return &tcpBufCache{instance: inst, round: 0}
+}
+
+// Get return a chan bufio.Reader (round-robin).
+func (b *tcpBufCache) Get() chan *bufio.Reader {
+    rc := b.instance[b.round]
+    // split requets to diff buffer chan
+    if b.round++; b.round == Conf.BufioInstance {
+        b.round = 0
+    }
+    return rc
+}
+
+
+
+// InitSignal register signals handler.
+func InitSignal() chan os.Signal {
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT, syscall.SIGSTOP)
+    return c
+}
+
+// HandleSignal fetch signal from chan then do exit or reload.
+func HandleSignal(c chan os.Signal) {
+    // Block until a signal is received.
+    for {
+        s := <-c
+        log.Info("comet get a signal %s", s.String())
+        switch s {
+            case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGSTOP, syscall.SIGINT:
+            return
+            case syscall.SIGHUP:
+            // TODO reload
+            //return
+            default:
+            return
+        }
+    }
+}
