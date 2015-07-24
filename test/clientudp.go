@@ -6,12 +6,12 @@ import (
 )
 
 const (
-    addr = "localhost:7777"
+    addr = ":6000"
 )
 
 func main() {
-    tcpAddr, err := net.ResolveTCPAddr("tcp4", addr)
-    conn, err := net.DialTCP("tcp",nil, tcpAddr)
+    tcpAddr, err := net.ResolveUDPAddr("udp", addr)
+    conn, err := net.DialUDP("udp",nil, tcpAddr)
     if err != nil {
         fmt.Println("连接服务端失败:", err.Error())
         return

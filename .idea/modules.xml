@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/gocomet.iml" filepath="$PROJECT_DIR$/.idea/gocomet.iml" />
+      <module fileurl="file://$PROJECT_DIR$/iwalker.iml" filepath="$PROJECT_DIR$/iwalker.iml" />
     </modules>
   </component>
 </project>
