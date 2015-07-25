@@ -35,12 +35,12 @@ func StartServer(port string) {
 	l, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err, "ListenTCP")
 
-	messages := make(chan string, 10)
+	messages := make(chan protocol.Payload, 10)
 
 	log.Info("Welcome to chat room ...")
 
 	//启动服务器广播线程
-	go broadcastHandler(&sessions, messages)
+	go broadcastHandler(messages)
 
 	var session model.Session
 	for {
@@ -58,25 +58,18 @@ func StartServer(port string) {
 //参数
 //      连接字典 conns
 //      数据通道 messages
-func broadcastHandler(sessions *map[string]model.Session, messages chan string) {
+func broadcastHandler(messages chan protocol.Payload) {
 	for {
 		msg := <-messages
 		var p protocol.Protocol
-		p.ProtocolType = "broadcast"
+		p.Type = "broadcast"
 		p.Time = time.Now().Unix()
-		var payload protocol.Payload
-		payload.Uid = "0"
-		payload.MessageType = "o"
 
-		var content protocol.Content
-		content.Message =  msg
-		
-		p.Payload = &payload
-		payload.Content = &content
+		p.Payload = &msg
 
-		for key, session := range *sessions {
+		for key, session := range sessions {
 			//log.Debug("session.conn[%s], .uid[%s]",session.Conn.RemoteAddr().String(), session.Uid)
-			content.From = session.Uid
+
 
 			data, err := codec.Eecoder(p)
 			if err != nil {
@@ -86,7 +79,7 @@ func broadcastHandler(sessions *map[string]model.Session, messages chan string) 
 			_, err = session.Conn.Write(data)
 			if err != nil {
 				log.Debug(err.Error())
-				delete(*sessions, key)
+				delete(sessions, key)
 			}
 		}
 	}
@@ -97,13 +90,13 @@ func broadcastHandler(sessions *map[string]model.Session, messages chan string) 
 //参数：
 //      数据连接 conn
 //      通讯通道 messages
-func Handler(session model.Session, messages chan string) {
+func Handler(session model.Session, messages chan protocol.Payload) {
 
 	log.Info("[%s] join chat room.",session.Conn.RemoteAddr().String())
 
 	buf := make([]byte, 1024)
 
-	var p protocol.Protocol
+	var request protocol.Protocol
 	for {
 		length, err := session.Conn.Read(buf)
 		if checkError(err, "Connection") == false {
@@ -115,23 +108,27 @@ func Handler(session model.Session, messages chan string) {
 		}
 		log.Debug("[%s] protocol: %s",session.Conn.RemoteAddr().String(), string(buf[0:length]))
 
-		var reciveStr string
+		codec.Decoder(buf[0:length], &request)
 
-		codec.Decoder(buf[0:length], &p)
+		var message protocol.Payload
 
-		switch p.ProtocolType {
+		switch request.Type {
 			case "client":
-				switch p.Payload.MessageType {
+				switch request.Payload.MessageType {
 					case "login":
 //						log.Debug(len(sessions), p.Payload.Uid)
 //						log.Debug(sessions[session.Conn.RemoteAddr().String()].Conn.RemoteAddr())
 //						sessions[session.Conn.RemoteAddr().String()].Uid = p.Payload.Uid
 
-						session.Uid = p.Payload.Uid
+						session.Uid = request.Payload.Uid
 						sessions[session.Conn.RemoteAddr().String()] = session
 
+						message = *request.Payload
 
 					case "message":
+
+						message = *request.Payload
+
 					default:
 				}
 
@@ -139,7 +136,7 @@ func Handler(session model.Session, messages chan string) {
 
 		}
 
-		messages <- reciveStr
+		messages <- message
 	}
 }
 

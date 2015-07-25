@@ -35,18 +35,18 @@ func login(conn net.Conn) {
     fmt.Println("please input your id:...")
     _, err := fmt.Scanln(&uid)
 
-    var p protocol.Protocol
-    p.ProtocolType = "client"
-    p.Time = time.Now().Unix()
+    var request protocol.Protocol
+    request.Type = "client"
+    request.Time = time.Now().Unix()
 
     var payload protocol.Payload
     payload.Uid = uid
     payload.MessageType= "login"
 
-    p.Payload = &payload
+    request.Payload = &payload
 
 
-    login, err := json.Marshal(p)
+    login, err := json.Marshal(request)
     if err != nil {
         panic(err.Error())
     }
@@ -66,9 +66,15 @@ func handleReceive(conn net.Conn) {
         }
         codec.Decoder(buf[0:length], &p)
 
-        switch p.ProtocolType {
+        switch p.Type {
             case "broadcast":
-                log.Debug("[%s] login", p.Payload.Content.From)
+                switch p.Payload.MessageType {
+                    case "login":
+                        log.Debug("[%s] login", p.Payload.Uid)
+                    default:
+                        log.Debug("[%s] says: [%s]", p.Payload.Uid, p.Payload.Content.Message)
+                }
+
             default:
         }
 
@@ -80,7 +86,7 @@ func handleReceive(conn net.Conn) {
 func handleSend(conn net.Conn) {
 
     var p protocol.Protocol
-    p.ProtocolType = "client"
+    p.Type = "client"
     p.Time = time.Now().Unix()
 
     var payload protocol.Payload
@@ -90,6 +96,7 @@ func handleSend(conn net.Conn) {
     var content protocol.Content
     content.From = uid
 
+    p.Payload = &payload
     payload.Content = &content
 
     log.Debug("Welcome!!!")
