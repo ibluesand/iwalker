@@ -9,6 +9,7 @@ import (
     "encoding/json"
     "github.com/ibluesand/iwalker/codec"
     "github.com/ibluesand/iwalker/protocol"
+    "strings"
 )
 
 var uid string
@@ -71,8 +72,11 @@ func handleReceive(conn net.Conn) {
                 switch p.Payload.MessageType {
                     case "login":
                         log.Debug("[%s] login", p.Payload.Uid)
-                    default:
+                    case "all":
                         log.Debug("[%s] says: [%s]", p.Payload.Uid, p.Payload.Content.Message)
+                    case "single":
+                        log.Debug("[%s]->[%s] says: [%s]", p.Payload.Uid, p.Payload.Content.To, p.Payload.Content.Message)
+                    default:
                 }
 
             default:
@@ -91,7 +95,7 @@ func handleSend(conn net.Conn) {
 
     var payload protocol.Payload
     payload.Uid = uid
-    payload.MessageType = "message"
+//    payload.MessageType = "all"
 
     var content protocol.Content
     content.From = uid
@@ -106,7 +110,20 @@ func handleSend(conn net.Conn) {
         if err != nil {
             log.Debug(err.Error())
         }
-        content.Message = message
+
+        index := strings.Index(message, ":")
+        log.Debug(index)
+        if strings.HasPrefix(message, "@") && index > 1{
+            payload.MessageType = "single"
+            content.Message = string([]rune(message)[index+1:])
+            content.To=string([]rune(message)[1:index])
+        } else {
+            payload.MessageType = "all"
+            content.Message = message
+        }
+
+
+
         data, err := codec.Eecoder(p)
         if err != nil {
             log.Debug(err.Error())

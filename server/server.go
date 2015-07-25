@@ -35,21 +35,23 @@ func StartServer(port string) {
 	l, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err, "ListenTCP")
 
-	messages := make(chan protocol.Payload, 10)
+	requests := make(chan model.Request, 10)
 
 	log.Info("Welcome to chat room ...")
 
 	//启动服务器广播线程
-	go broadcastHandler(messages)
+	//go broadcastHandler(messages)
+
+	go redirectHandler(requests)
 
 	var session model.Session
 	for {
 		conn, err := l.Accept()
 		session.Conn = conn
 		checkError(err, "Accept")
-		sessions[conn.RemoteAddr().String()] = session
+		//sessions[conn.RemoteAddr().String()] = session
 		//启动一个新线程
-		go Handler(session, messages)
+		go Handler(session, requests)
 	}
 
 }
@@ -58,30 +60,61 @@ func StartServer(port string) {
 //参数
 //      连接字典 conns
 //      数据通道 messages
-func broadcastHandler(messages chan protocol.Payload) {
+func redirectHandler(messages chan model.Request) {
 	for {
-		msg := <-messages
+		request := <-messages
 		var p protocol.Protocol
 		p.Type = "broadcast"
 		p.Time = time.Now().Unix()
 
-		p.Payload = &msg
+		p.Payload = &request.Payload
 
-		for key, session := range sessions {
-			//log.Debug("session.conn[%s], .uid[%s]",session.Conn.RemoteAddr().String(), session.Uid)
+		switch  p.Payload.MessageType {
+
+			case "login","all":
+				for key, session := range sessions {
+					//log.Debug("session.conn[%s], .uid[%s]",session.Conn.RemoteAddr().String(), session.Uid)
+
+					data, err := codec.Eecoder(p)
+					if err != nil {
+						log.Error(err.Error())
+					}
+					log.Debug(string(data))
+					_, err = session.Conn.Write(data)
+					if err != nil {
+						log.Debug(err.Error())
+						delete(sessions, key)
+					}
+				}
+
+			case "single":
+
+				data, err := codec.Eecoder(p)
+				if err != nil {
+					log.Error(err.Error())
+				}
+				log.Debug(string(data))
+
+				_, err = request.Conn.Write(data)
+				if err != nil {
+					log.Debug(err.Error())
+					delete(sessions, p.Payload.Uid)
+				}
+
+				_, err = sessions[p.Payload.Content.To].Conn.Write(data)
+				if err != nil {
+					log.Debug(err.Error())
+					delete(sessions, p.Payload.Content.To)
+				}
 
 
-			data, err := codec.Eecoder(p)
-			if err != nil {
-				log.Error(err.Error())
-			}
-			log.Debug(string(data))
-			_, err = session.Conn.Write(data)
-			if err != nil {
-				log.Debug(err.Error())
-				delete(sessions, key)
-			}
+
+
+			default:
+
 		}
+
+
 	}
 
 }
@@ -90,7 +123,7 @@ func broadcastHandler(messages chan protocol.Payload) {
 //参数：
 //      数据连接 conn
 //      通讯通道 messages
-func Handler(session model.Session, messages chan protocol.Payload) {
+func Handler(session model.Session, messages chan model.Request) {
 
 	log.Info("[%s] join chat room.",session.Conn.RemoteAddr().String())
 
@@ -110,7 +143,8 @@ func Handler(session model.Session, messages chan protocol.Payload) {
 
 		codec.Decoder(buf[0:length], &request)
 
-		var message protocol.Payload
+		var message model.Request
+		message.Conn = session.Conn
 
 		switch request.Type {
 			case "client":
@@ -118,16 +152,18 @@ func Handler(session model.Session, messages chan protocol.Payload) {
 					case "login":
 //						log.Debug(len(sessions), p.Payload.Uid)
 //						log.Debug(sessions[session.Conn.RemoteAddr().String()].Conn.RemoteAddr())
-//						sessions[session.Conn.RemoteAddr().String()].Uid = p.Payload.Uid
 
 						session.Uid = request.Payload.Uid
-						sessions[session.Conn.RemoteAddr().String()] = session
+						sessions[session.Uid] = session
 
-						message = *request.Payload
+						message.Payload = *request.Payload
 
-					case "message":
 
-						message = *request.Payload
+					case "all":
+						message.Payload = *request.Payload
+
+					case "single":
+						message.Payload = *request.Payload
 
 					default:
 				}
