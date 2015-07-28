@@ -7,6 +7,7 @@ import (
 	"github.com/ibluesand/iwalker/codec"
 	"github.com/ibluesand/iwalker/model"
 	"time"
+	"github.com/ibluesand/iwalker/common"
 )
 
 
@@ -15,14 +16,7 @@ func main() {
 	StartServer("7777")
 }
 
-//错误检查
-func checkError(err error, info string) (res bool) {
-	if err != nil {
-		log.Error(info + "  " + err.Error())
-		return false
-	}
-	return true
-}
+
 var sessions = make(map[string]model.Session)
 
 //启动服务器
@@ -30,10 +24,10 @@ func StartServer(port string) {
 	service := ":" + port //strconv.Itoa(port);
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", service)
-	checkError(err, "ResolveTCPAddr")
+	common.CheckError(err, "ResolveTCPAddr")
 
 	l, err := net.ListenTCP("tcp", tcpAddr)
-	checkError(err, "ListenTCP")
+	common.CheckError(err, "ListenTCP")
 
 	requests := make(chan model.Request, 10)
 
@@ -48,7 +42,7 @@ func StartServer(port string) {
 	for {
 		conn, err := l.Accept()
 		session.Conn = conn
-		checkError(err, "Accept")
+		common.CheckError(err, "Accept")
 		//sessions[conn.RemoteAddr().String()] = session
 		//启动一个新线程
 		go Handler(session, requests)
@@ -69,17 +63,20 @@ func redirectHandler(messages chan model.Request) {
 
 		p.Payload = &request.Payload
 
+
+		data, err := codec.Eecoder(p)
+		if err != nil {
+			log.Error(err.Error())
+		}
+		log.Debugf("[debug] [%s]",string(data))
+
+
 		switch  p.Payload.MessageType {
 
-			case "login","all":
+			case "login","logout","all":
 				for key, session := range sessions {
 					//log.Debug("session.conn[%s], .uid[%s]",session.Conn.RemoteAddr().String(), session.Uid)
 
-					data, err := codec.Eecoder(p)
-					if err != nil {
-						log.Error(err.Error())
-					}
-					log.Debugf(string(data))
 					_, err = session.Conn.Write(data)
 					if err != nil {
 						log.Debugf(err.Error())
@@ -88,12 +85,6 @@ func redirectHandler(messages chan model.Request) {
 				}
 
 			case "single":
-
-				data, err := codec.Eecoder(p)
-				if err != nil {
-					log.Error(err.Error())
-				}
-				log.Debugf(string(data))
 
 				_, err = request.Conn.Write(data)
 				if err != nil {
@@ -107,10 +98,9 @@ func redirectHandler(messages chan model.Request) {
 					delete(sessions, p.Payload.Content.To)
 				}
 
-
-
-
 			default:
+
+
 
 		}
 
@@ -132,47 +122,56 @@ func Handler(session model.Session, messages chan model.Request) {
 	var request protocol.Protocol
 	for {
 		length, err := session.Conn.Read(buf)
-		if checkError(err, "Connection") == false {
-			session.Conn.Close()
-			break
-		}
-		if length > 0 {
-			buf[length] = 0
-		}
-		log.Debugf("[%s] protocol: %s",session.Conn.RemoteAddr().String(), string(buf[0:length]))
-
-		codec.Decoder(buf[0:length], &request)
 
 		var message model.Request
 		message.Conn = session.Conn
 
-		switch request.Type {
-			case "client":
+		//
+		if common.CheckError(err, "Connection error") == false {
+
+			log.Debug("connect error")
+			var payload protocol.Payload
+			payload.Uid = session.Uid
+			payload.MessageType = "logout"
+			message.Payload = payload
+
+			session.Conn.Close()
+			delete(sessions, session.Uid)
+
+			log.Debug("message logout->::", message.Payload.MessageType)
+			messages <- message
+
+			break
+
+		} else {
+			log.Debugf("[%s] protocol: %s", session.Conn.RemoteAddr().String(), string(buf[0:length]))
+
+			codec.Decoder(buf[0:length], &request)
+
+			switch request.Type {
+				case "client":
 				switch request.Payload.MessageType {
 					case "login":
-//						log.Debug(len(sessions), p.Payload.Uid)
-//						log.Debug(sessions[session.Conn.RemoteAddr().String()].Conn.RemoteAddr())
-
-						session.Uid = request.Payload.Uid
-						sessions[session.Uid] = session
-
-						message.Payload = *request.Payload
-
+					session.Uid = request.Payload.Uid
+					sessions[session.Uid] = session
 
 					case "all":
-						message.Payload = *request.Payload
 
 					case "single":
-						message.Payload = *request.Payload
 
 					default:
 				}
+				message.Payload = *request.Payload
 
-			default:
+				default:
 
+			}
+
+			log.Debug("message->::", message.Payload.MessageType)
+			messages <- message
 		}
 
-		messages <- message
+
 	}
 }
 
