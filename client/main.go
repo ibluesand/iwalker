@@ -3,7 +3,7 @@ import (
     "net"
     "fmt"
     "os"
-    log "code.google.com/p/log4go"
+    log "github.com/cihub/seelog"
     "runtime"
     "time"
     "encoding/json"
@@ -71,11 +71,11 @@ func handleReceive(conn net.Conn) {
             case "broadcast":
                 switch p.Payload.MessageType {
                     case "login":
-                        log.Debug("[%s] login", p.Payload.Uid)
+                        log.Debugf("[%s] login", p.Payload.Uid)
                     case "all":
-                        log.Debug("[%s] says: [%s]", p.Payload.Uid, p.Payload.Content.Message)
+                        log.Debugf("[%s] says: [%s]", p.Payload.Uid, p.Payload.Content.Message)
                     case "single":
-                        log.Debug("[%s]->[%s] says: [%s]", p.Payload.Uid, p.Payload.Content.To, p.Payload.Content.Message)
+                        log.Debugf("[%s]->[%s] says: [%s]", p.Payload.Uid, p.Payload.Content.To, p.Payload.Content.Message)
                     default:
                 }
 

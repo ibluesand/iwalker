@@ -1,7 +1,7 @@
 package main
 
 import (
-	log "code.google.com/p/log4go"
+	log "github.com/cihub/seelog"
 	"net"
 	"github.com/ibluesand/iwalker/protocol"
 	"github.com/ibluesand/iwalker/codec"
@@ -79,10 +79,10 @@ func redirectHandler(messages chan model.Request) {
 					if err != nil {
 						log.Error(err.Error())
 					}
-					log.Debug(string(data))
+					log.Debugf(string(data))
 					_, err = session.Conn.Write(data)
 					if err != nil {
-						log.Debug(err.Error())
+						log.Debugf(err.Error())
 						delete(sessions, key)
 					}
 				}
@@ -93,17 +93,17 @@ func redirectHandler(messages chan model.Request) {
 				if err != nil {
 					log.Error(err.Error())
 				}
-				log.Debug(string(data))
+				log.Debugf(string(data))
 
 				_, err = request.Conn.Write(data)
 				if err != nil {
-					log.Debug(err.Error())
+					log.Debugf(err.Error())
 					delete(sessions, p.Payload.Uid)
 				}
 
 				_, err = sessions[p.Payload.Content.To].Conn.Write(data)
 				if err != nil {
-					log.Debug(err.Error())
+					log.Debugf(err.Error())
 					delete(sessions, p.Payload.Content.To)
 				}
 
@@ -125,7 +125,7 @@ func redirectHandler(messages chan model.Request) {
 //      通讯通道 messages
 func Handler(session model.Session, messages chan model.Request) {
 
-	log.Info("[%s] join chat room.",session.Conn.RemoteAddr().String())
+	log.Infof("[%s] join chat room.",session.Conn.RemoteAddr().String())
 
 	buf := make([]byte, 1024)
 
@@ -139,7 +139,7 @@ func Handler(session model.Session, messages chan model.Request) {
 		if length > 0 {
 			buf[length] = 0
 		}
-		log.Debug("[%s] protocol: %s",session.Conn.RemoteAddr().String(), string(buf[0:length]))
+		log.Debugf("[%s] protocol: %s",session.Conn.RemoteAddr().String(), string(buf[0:length]))
 
 		codec.Decoder(buf[0:length], &request)
 
